@@ -7,9 +7,9 @@ import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.os.Handler;
 import android.os.Message;
-import android.support.v7.app.ActionBarActivity;
+import org.apache.commons.io.IOUtils;
 import android.os.Bundle;
-import android.util.Pair;
+
 import android.view.Menu;
 import android.view.MenuItem;
 import android.widget.Toast;
@@ -19,7 +19,8 @@ import com.androidplot.xy.LineAndPointFormatter;
 import com.androidplot.xy.SimpleXYSeries;
 import com.androidplot.xy.XYPlot;
 import com.androidplot.xy.XYSeries;
-import com.androidplot.xy.XYStepMode;
+
+import java.io.ByteArrayInputStream;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -29,13 +30,17 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.io.Reader;
 import java.io.UnsupportedEncodingException;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.text.DecimalFormat;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+
+import java.net.InetAddress;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.zip.GZIPInputStream;
+
 
 
 public class MainActivity extends Activity {
@@ -51,11 +56,15 @@ public class MainActivity extends Activity {
     private XYPlot plot;
     int formatCount=0;
     private double leadingTimestamp = 0;
-
+    DatagramSocket client_socket = null;
+    InetAddress serverAddress =  null;
     Timer timer = new Timer(true);
     ConnectivityManager connMgr;
+    byte [] triggerData = new byte[1024];
+    byte[] receiveData = new byte[1300];
+
     private List<XYSeries> seriesCollection = new ArrayList<XYSeries>();
-    public static final String REMOTESTRING = "http://192.168.10.1:81/client.txt";
+    public static final String REMOTESTRING = "192.168.10.1";
     PrintWriter logger = null;
     private Handler uiHandler = new Handler()
     {
@@ -150,7 +159,7 @@ public class MainActivity extends Activity {
                 try
                 {
 
-                    String result = downloadUrl(REMOTESTRING);
+                    String result = downloadUrl();
                     parseText(result);
 
                     Message msg = new Message();
@@ -175,43 +184,40 @@ public class MainActivity extends Activity {
         }
     };
 
-    private String downloadUrl(String myurl) throws IOException {
-        InputStream is = null;
-        // Only display the first 500 characters of the retrieved
-        // web page content.
-        int len = 10240;
+    private String downloadUrl() throws Exception {
 
-        try {
-            URL url = new URL(myurl);
-            HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-
-            conn.setRequestMethod("GET");
-
-            // Starts the query
-            conn.connect();
-
-            is = conn.getInputStream();
-
-            // Convert the InputStream into a string
-            String contentAsString = readIt(is, len);
+            if (this.serverAddress == null) {
+                this.serverAddress = InetAddress.getByName(REMOTESTRING);
+            }
+            if(this.client_socket==null)
+            {
+                this.client_socket = new DatagramSocket();
+                client_socket.setSoTimeout(1000);
+            }
+            DatagramPacket send_packet = new DatagramPacket(triggerData,1, this.serverAddress, 82);
+            client_socket.send(send_packet);
+            DatagramPacket receivePacket = new DatagramPacket(receiveData, receiveData.length);
+            client_socket.receive(receivePacket);
+            String contentAsString = uncompressString(receivePacket.getData());
             return contentAsString;
 
-            // Makes sure that the InputStream is closed after the app is
-            // finished using it.
-        } finally {
-            if (is != null) {
-                is.close();
-            }
-        }
+
     }
 
-    public String readIt(InputStream stream, int len) throws IOException, UnsupportedEncodingException {
-        Reader reader = null;
-        reader = new InputStreamReader(stream, "UTF-8");
-        char[] buffer = new char[len];
-        int real_len = reader.read(buffer);
-        return new String(buffer,0,real_len);
+
+    public static String uncompressString(byte[] data) throws IOException {
+        String result = null;
+        GZIPInputStream zi = null;
+        try {
+            zi = new GZIPInputStream(new ByteArrayInputStream(data));
+            result = IOUtils.toString(zi);
+        } finally {
+            IOUtils.closeQuietly(zi);
+        }
+        return result;
     }
+
+
 
     public void parseText(String text) throws Exception
     {
@@ -325,7 +331,7 @@ public class MainActivity extends Activity {
             SimpleXYSeries s = (SimpleXYSeries)seriesCollection.get(d);
             if(s.size()>0) {
                 double tmp = s.getX(0).doubleValue();
-                if (leadingTimestamp - tmp > 30000)//Show 30 second
+                if (leadingTimestamp - tmp > 15000)//Show 30 second
                 {
                     s.removeFirst();
                 }
@@ -333,11 +339,11 @@ public class MainActivity extends Activity {
         }
     }
 
-        @Override public void onStop()
-        {
-            finish();
-            super.onStop();
-        }
+//        @Override public void onStop()
+//        {
+//            finish();
+//            super.onStop();
+//        }
 
     public LineAndPointFormatter getNextFormater()
     {
@@ -356,31 +362,31 @@ public class MainActivity extends Activity {
             case 3:
                 color1 = Color.GREEN;
                 break;
+
             case 4:
-                color1 = Color.GREEN;
-                break;
-            case 5:
                 color1 = Color.LTGRAY;
                 break;
-            case 6:
+            case 5:
                 color1 = Color.BLUE;
                 break;
-            case 7:
+            case 6:
                 color1 = Color.DKGRAY;
                 break;
 
-            case 8:
+            case 7:
                 color1 = Color.YELLOW;
                 break;
-            case 9:
+            case 8:
                 color1 = Color.CYAN;
                 break;
-            case 10:
+            case 9:
                 color1 = Color.MAGENTA;
                 break;
 
 
             default:
+                formatCount = 1;
+                color1 = Color.WHITE;
                 break;
         }
         LineAndPointFormatter formatter2 =
